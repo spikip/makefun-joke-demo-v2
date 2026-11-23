@@ -21,6 +21,7 @@
 
 import os
 import stat
+import tempfile
 
 JOKE = "My agent crashed the demo, then asked me to review the pull request that caused it."
 
@@ -30,9 +31,19 @@ def main() -> None:
     out_dir = os.environ["MAKEFUN_OUTPUT_DIR"]
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, "entry.txt")
-    with open(path, "w", encoding="utf-8", newline="\n") as f:
-        f.write(JOKE)
-    os.chmod(path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+    # Write atomically: a crash mid-write must never leave a partial entry.txt.
+    fd, tmp_path = tempfile.mkstemp(dir=out_dir, prefix=".entry-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+            f.write(JOKE)
+        os.chmod(tmp_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except FileNotFoundError:
+            pass
+        raise
 
 
 if __name__ == "__main__":
